@@ -1345,6 +1345,43 @@ table.cmp .totrow th, table.cmp .totrow td { border-top: 2px solid var(--ink); f
 
   document.getElementById("editToggle").addEventListener("click", function () { state.editing = !state.editing; if (!state.editing) state.openForm = null; render(); });
   document.getElementById("addBooking").addEventListener("click", function () { state.openForm = "bk:new"; render(); });
+  // Map links: on a phone, open the Amap (高德地图) app directly; fall back to the web map.
+  // Schemes from Amap's own docs: iOS iosamap://poi (name=), Android androidamap://poi (keywords=), package com.autonavi.minimap.
+  function amapKeyword(href) {
+    var u; try { u = new URL(href); } catch (e) { return ""; }
+    var kw = str(u.searchParams.get("keyword")).trim(), city = str(u.searchParams.get("city")).trim();
+    var c = city.replace(/市$/, "");
+    // the app links have no city field, so put the city in the search words
+    return c && kw.indexOf(c) < 0 ? c + " " + kw : kw;
+  }
+  document.addEventListener("click", function (e) {
+    var a = e.target && e.target.closest ? e.target.closest('a[href^="https://uri.amap.com/"]') : null;
+    if (!a || e.defaultPrevented || e.button > 0 || e.metaKey || e.ctrlKey) return;
+    var ua = navigator.userAgent || "";
+    var ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    var android = /Android/i.test(ua);
+    if (!ios && !android) return;                  // computer: web map as before
+    if (/MicroMessenger/i.test(ua)) { toast("WeChat can't open Amap – tap ··· and choose Open in browser"); return; }
+    var kw = amapKeyword(a.href); if (!kw) return;
+    e.preventDefault();
+    var web = a.href;
+    if (android) {
+      location.href = "intent://poi?sourceApplication=familytrip&keywords=" + encodeURIComponent(kw) + "&dev=0" +
+        "#Intent;scheme=androidamap;package=com.autonavi.minimap;S.browser_fallback_url=" + encodeURIComponent(web) + ";end";
+      return;
+    }
+    // iOS: try the app; if the page is still showing a moment later, the app isn't there – open the web map
+    var left = false;
+    function gone() { left = true; }
+    document.addEventListener("visibilitychange", gone, { once: true });
+    window.addEventListener("pagehide", gone, { once: true });
+    window.addEventListener("blur", gone, { once: true });
+    location.href = "iosamap://poi?sourceApplication=familytrip&name=" + encodeURIComponent(kw) + "&dev=0";
+    setTimeout(function () {
+      document.removeEventListener("visibilitychange", gone); window.removeEventListener("pagehide", gone); window.removeEventListener("blur", gone);
+      if (!left && !document.hidden) location.href = web;
+    }, 2500);
+  });
   // While a form is open, keep live updates from rebuilding it (and wiping what's typed); they show on Save/Cancel.
   function liveRender() { if (!state.openForm) render(); }
 
